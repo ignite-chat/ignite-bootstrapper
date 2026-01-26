@@ -1,5 +1,10 @@
 const { app } = require('electron');
-const { join } = require('path');
+const { join, basename } = require('path');
+const fs = require('fs');
+const os = require('os');
+const { execSync } = require('child_process');
+
+app.setAppUserModelId("com.squirrel.ignite.ignite");
 
 // this should be placed at top of main.js to handle setup events quickly
 if (handleSquirrelEvent()) {
@@ -12,66 +17,106 @@ function handleSquirrelEvent() {
         return false;
     }
 
-    const ChildProcess = require('child_process');
     const path = require('path');
 
-    const appFolder = path.resolve(process.execPath, '..');
-    const rootAtomFolder = path.resolve(appFolder, '..');
-    const updateDotExe = path.resolve(path.join(rootAtomFolder, 'Update.exe'));
-    const exeName = path.basename(process.execPath);
+    const installAutoLaunch = function () {
+        if (process.platform !== 'win32') {
+            return;
+        }
 
-    const spawn = function (command, args) {
-        let spawnedProcess, error;
+        const exec = app.getPath('exe');
+        const appName = path.basename(exec, '.exe');
+        const queuePrefix = ['HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run', '/v', appName];
+        const reg = (a, c) => require('child_process').execFile('reg.exe', a, c);
 
+        // Add registry entry for auto launch
+        reg(['add', ...queuePrefix, '/d', '"' + join(exec, '..', '..', 'Update.exe') + '" --processStart ' + basename(exec), '/f'], null);
+    }
+
+    const uninstallAutoLaunch = function () {
+        if (process.platform !== 'win32') {
+            return;
+        }
+
+        const exec = app.getPath('exe');
+        const appName = path.basename(exec, '.exe');
+        const queuePrefix = ['HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run', '/v', appName];
+        const reg = (a, c) => require('child_process').execFile('reg.exe', a, c);
+
+        // Remove registry entry for auto launch
+        reg(['delete', ...queuePrefix, '/f'], null);
+    }
+
+    // --- Shortcut creation/removal ---
+    function createDesktopShortcut() {
+        if (process.platform !== 'win32') return;
+
+        const exec = app.getPath('exe');
+        const appName = path.basename(exec, '.exe');
+        const updateExe = path.resolve(path.join(exec, '..', '..', 'Update.exe'));
+        const processStartArg = '--processStart ' + path.basename(exec);
+        const desktopDir = path.join(os.homedir(), 'Desktop');
+        const shortcutPath = path.join(desktopDir, `${appName}.lnk`);
+        const iconPath = path.resolve(path.join(exec, '..', '..', 'app.ico'));
+
+        const vbsScript = `
+Set oWS = WScript.CreateObject("WScript.Shell")
+sLinkFile = "${shortcutPath.replace(/\\/g, '\\\\')}"
+Set oLink = oWS.CreateShortcut(sLinkFile)
+oLink.TargetPath = "${updateExe.replace(/\\/g, '\\\\')}"
+oLink.Arguments = "${processStartArg}"
+oLink.WorkingDirectory = "${path.dirname(updateExe).replace(/\\/g, '\\\\')}"
+oLink.WindowStyle = 1
+oLink.Description = "${appName}"
+oLink.IconLocation = "${iconPath.replace(/\\/g, '\\\\')}"
+oLink.Save
+`;
+        const vbsPath = path.join(os.tmpdir(), 'create_shortcut.vbs');
+        fs.writeFileSync(vbsPath, vbsScript, 'utf16le');
         try {
-            spawnedProcess = ChildProcess.spawn(command, args, { detached: true });
-        } catch (error) { }
+            execSync(`cscript //nologo "${vbsPath}"`);
+        } catch (err) {
+            // ignore errors
+        } finally {
+            fs.unlinkSync(vbsPath);
+        }
+    }
 
-        return spawnedProcess;
-    };
+    function removeDesktopShortcut() {
+        if (process.platform !== 'win32') return;
 
-    const spawnUpdate = function (args) {
-        return spawn(updateDotExe, args);
-    };
+        const exec = app.getPath('exe');
+        const appName = path.basename(exec, '.exe');
+        const desktopDir = path.join(os.homedir(), 'Desktop');
+        const shortcutPath = path.join(desktopDir, `${appName}.lnk`);
+        try {
+            fs.unlinkSync(shortcutPath);
+        } catch (e) {
+            // ignore if not found
+        }
+    }
+    // --- End shortcut creation/removal ---
 
     const squirrelEvent = process.argv[1];
     switch (squirrelEvent) {
         case '--squirrel-install':
         case '--squirrel-updated':
-            // Optionally do things such as:
-            // - Add your .exe to the PATH
-            // - Write to the registry for things like file associations and
-            //   explorer context menus
-
-            // Install desktop and start menu shortcuts
-            spawnUpdate(['--createShortcut', exeName]);
-
+            installAutoLaunch();
+            createDesktopShortcut();
             setTimeout(app.quit, 1000);
             return true;
 
         case '--squirrel-uninstall':
-            // Undo anything you did in the --squirrel-install and
-            // --squirrel-updated handlers
-
-            // Remove desktop and start menu shortcuts
-            spawnUpdate(['--removeShortcut', exeName]);
-
+            uninstallAutoLaunch();
+            removeDesktopShortcut();
             setTimeout(app.quit, 1000);
             return true;
 
         case '--squirrel-obsolete':
-            // This is called on the outgoing version of your app before
-            // we update to the new version - it's the opposite of
-            // --squirrel-updated
-
             app.quit();
             return true;
     }
-};
-
-app.setAppUserModelId("com.squirrel.ignite.ignite");
-
-if (require('electron-squirrel-startup')) app.quit();
+}
 
 // Start bootstrap
-require('./bootstrap.cjs')(); 
+require('./bootstrap.cjs')();

@@ -3,6 +3,8 @@ const { join } = require('path');
 
 const startCore = () => {
   const w = new BrowserWindow({
+    width: 1200,
+    height: 800,
     center: true,
     backgroundColor: '#2f3136',
     webPreferences: {
@@ -15,11 +17,21 @@ const startCore = () => {
 
 const startUpdate = () => {
   // TODO: implement auto-updater here
-  
+
   startCore();
 };
 
 
 module.exports = () => {
-  app.whenReady().then(startUpdate);
+  app.whenReady().then(() => {
+    startUpdate();
+
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) startUpdate();
+    });
+  });
+
+  app.on("window-all-closed", () => {
+    if (process.platform !== "darwin") app.quit();
+  });
 };

@@ -16,9 +16,6 @@
     "@electron/fuses": "^1.8.0",
     "electron": "40.0.0"
   },
-  "dependencies": {
-    "electron-squirrel-startup": "^1.0.1"
-  },
   "scripts": {
     "start": "electron-forge start",
     "package": "electron-forge package",
