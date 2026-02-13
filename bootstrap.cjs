@@ -1,18 +1,101 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu } = require('electron');
 const { join } = require('path');
 
+let tray = null;
+let mainWindow = null;
+
+const createTray = () => {
+  // Create tray icon - you'll need to add a tray-icon.png file (16x16 or 32x32 recommended)
+  // For now, this will use the default Electron icon if tray-icon.png doesn't exist
+  const { nativeImage } = require('electron');
+  const fs = require('fs');
+
+  let iconPath = join(__dirname, 'tray-icon.ico');
+
+  // Check if custom icon exists, otherwise create a minimal one from the app icon
+  if (!fs.existsSync(iconPath)) {
+    // Try to use app icon or create empty icon
+    const icon = nativeImage.createEmpty();
+    tray = new Tray(icon);
+  } else {
+    tray = new Tray(iconPath);
+  }
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: 'Show Ignite',
+      click: () => {
+        if (mainWindow) {
+          mainWindow.show();
+        }
+      }
+    },
+    {
+      label: 'Quit',
+      click: () => {
+        app.isQuitting = true;
+        app.quit();
+      }
+    }
+  ]);
+
+  tray.setToolTip('Ignite');
+  tray.setContextMenu(contextMenu);
+
+  // Show window on tray icon click
+  tray.on('click', () => {
+    if (mainWindow) {
+      mainWindow.show();
+    }
+  });
+};
+
 const startCore = () => {
-  const w = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     center: true,
+    titleBarStyle: 'hidden',
     backgroundColor: '#2f3136',
     webPreferences: {
       preload: join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
     },
   });
 
-  w.loadURL("https://app.ignite-chat.com")
+  // Minimize to tray instead of closing
+  mainWindow.on('close', (event) => {
+    if (!app.isQuitting) {
+      event.preventDefault();
+      mainWindow.hide();
+    }
+  });
+
+  mainWindow.loadURL("https://app.ignite-chat.com");
+
+  // Setup IPC handlers for window controls
+  ipcMain.handle('window:minimize', () => {
+    if (mainWindow) {
+      mainWindow.minimize();
+    }
+  });
+
+  ipcMain.handle('window:maximize', () => {
+    if (mainWindow) {
+      if (mainWindow.isMaximized()) {
+        mainWindow.unmaximize();
+      } else {
+        mainWindow.maximize();
+      }
+    }
+  });
+
+  ipcMain.handle('window:close', () => {
+    if (mainWindow) {
+      mainWindow.close(); // This will trigger the 'close' event and hide the window
+    }
+  });
 };
 
 const startUpdate = () => {
@@ -24,6 +107,7 @@ const startUpdate = () => {
 
 module.exports = () => {
   app.whenReady().then(() => {
+    createTray();
     startUpdate();
 
     app.on("activate", () => {
@@ -31,7 +115,8 @@ module.exports = () => {
     });
   });
 
-  app.on("window-all-closed", () => {
-    if (process.platform !== "darwin") app.quit();
+  app.on("window-all-closed", (event) => {
+    // Prevent quit when all windows are closed, keep app in tray
+    event.preventDefault();
   });
 };

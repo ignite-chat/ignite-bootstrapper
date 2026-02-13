@@ -7,9 +7,13 @@ if (!process.isMainFrame) {
     throw new Error('IgniteNative preload script should only be loaded in main frames');
 }
 if (window.opener === null) {
-    const { contextBridge } = require('electron');
+    const { contextBridge, ipcRenderer } = require('electron');
     const IgniteNative = {
         isRenderer: process.type === 'renderer',
+        isElectron: true,
+        minimize: () => ipcRenderer.invoke('window:minimize'),
+        maximize: () => ipcRenderer.invoke('window:maximize'),
+        close: () => ipcRenderer.invoke('window:close'),
     };
     contextBridge.exposeInMainWorld('IgniteNative', IgniteNative);
 }
