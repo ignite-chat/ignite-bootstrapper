@@ -118,5 +118,27 @@ oLink.Save
     }
 }
 
-// Start bootstrap
-require('./bootstrap.cjs')();
+// Single instance lock - prevent multiple instances
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+    // Another instance is already running, quit this one
+    app.quit();
+} else {
+    // We got the lock, handle second instance attempts
+    app.on('second-instance', (event, commandLine, workingDirectory) => {
+        // Someone tried to run a second instance, focus our window instead
+        const { BrowserWindow } = require('electron');
+        const windows = BrowserWindow.getAllWindows();
+
+        if (windows.length > 0) {
+            const mainWindow = windows[0];
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.show();
+            mainWindow.focus();
+        }
+    });
+
+    // Start bootstrap
+    require('./bootstrap.cjs')();
+}

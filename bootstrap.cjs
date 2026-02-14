@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Tray, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, desktopCapturer, Menu } = require('electron');
 const { join } = require('path');
 
 let tray = null;
@@ -96,10 +96,36 @@ const startCore = () => {
       mainWindow.close(); // This will trigger the 'close' event and hide the window
     }
   });
+
+  ipcMain.handle('desktop:getSources', async () => {
+    const sources = await desktopCapturer.getSources({
+      types: ['window', 'screen'],
+      thumbnailSize: { width: 320, height: 180 },
+      fetchWindowIcons: true,
+    });
+
+    return sources.map((source) => ({
+      id: source.id,
+      name: source.name,
+      thumbnailDataUrl: source.thumbnail.toDataURL(),
+      appIconDataUrl: source.appIcon ? source.appIcon.toDataURL() : null,
+    }));
+  });
 };
 
-const startUpdate = () => {
-  // TODO: implement auto-updater here
+const startUpdate = async () => {
+  try {
+    const updateResult = await require('./asarUpdater')();
+
+    if (updateResult === 'restart') {
+      // App will restart via app.relaunch(), don't continue
+      return;
+    }
+
+    // 'no-update', 'failed', or 'error' - continue to startCore()
+  } catch (e) {
+    console.error('Update check failed:', e);
+  }
 
   startCore();
 };
